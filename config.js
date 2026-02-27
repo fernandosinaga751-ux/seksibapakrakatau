@@ -6,7 +6,7 @@
 
 const FIREBASE_CONFIG = {
   apiKey:            "AIzaSyCoJPtquweOLVA6kc8YMtQ7ax7Sowm5g_c",
-  authDomain:        "seksibapa-329ea.firebaseapp.comm",
+  authDomain:        "seksibapa-329ea.firebaseapp.com",
   projectId:         "seksibapa-329ea",
   storageBucket:     "seksibapa-329ea.firebasestorage.app",
   messagingSenderId: "83897302931",   // opsional
