@@ -852,6 +852,7 @@ function updateFbIndicators(status) {
     el.textContent = icons[status];
     el.className = 'fb-status ' + cls[status];
   });
+  const settingStatus = document.getElementById('fb-setting-status');
   if (settingStatus) settingStatus.textContent = status === 'online' ? '🟢 Terhubung' : '🔴 Tidak terhubung';
 }
 
@@ -1053,6 +1054,11 @@ function init(){
     try { S.currentToken = JSON.parse(sessionStorage.getItem('currentToken')); } catch(e) {}
   }
 
+  // Sembunyikan semua halaman dulu agar tidak ada flash
+  document.getElementById('public-page').style.display='none';
+  document.getElementById('admin-page').style.display='none';
+  document.getElementById('token-page').style.display='none';
+
   // Tentukan halaman yang ditampilkan berdasarkan session aktif
   if (S.adminLoggedIn) {
     goAdmin();
@@ -1060,8 +1066,6 @@ function init(){
     goTokenDashboard();
   } else {
     document.getElementById('public-page').style.display='block';
-    document.getElementById('admin-page').style.display='none';
-    document.getElementById('token-page').style.display='none';
     renderPubStats();
   }
 
@@ -1459,16 +1463,13 @@ function renderAdminRiwayatTable(){
   const sorted=[...S.payments].reverse();
   if(!sorted.length){tbody.innerHTML='';empty.style.display='block';return;}
   empty.style.display='none';
-  // Map balik index ke index asli di S.payments
-  const origIndexes=sorted.map(p=>S.payments.indexOf(p));
   tbody.innerHTML=sorted.map((p,i)=>{
-    const origIdx=origIndexes[i];
     const isAdmin=p.tipeKonfirmasi==='admin';
     const isTunai=p.metode==='Tunai';
     const konfIcon=isAdmin?'🔒':isTunai?'🔑':'✅';
     const konfColor=isAdmin?'var(--brown)':isTunai?'var(--green)':'var(--blue)';
     const konfBg=isAdmin?'#fef3c7':isTunai?'#d1fae5':'#dbeafe';
-    return '<tr id="riwayat-row-'+origIdx+'"><td style="color:var(--text-muted);font-size:.75rem">'+(i+1)+'</td>'
+    return '<tr id="riwayat-row-'+p.id+'"><td style="color:var(--text-muted);font-size:.75rem">'+(i+1)+'</td>'
       +'<td><span class="nc">'+p.nama+'</span></td>'
       +'<td>'+sektorBadge(p.sektor||0)+'</td>'
       +'<td>'+BULAN[p.bulan]+'</td>'
@@ -1477,16 +1478,16 @@ function renderAdminRiwayatTable(){
       +'<td style="font-size:.78rem;color:var(--text-muted);">'+p.tglBayar+'</td>'
       +'<td><span style="display:inline-flex;align-items:center;gap:.25rem;font-size:.72rem;background:'+konfBg+';color:'+konfColor+';padding:.15rem .5rem;border-radius:8px;font-weight:600;white-space:nowrap;">'+konfIcon+' '+(p.dikonfirmasiOleh||'—')+'</span></td>'
       +'<td style="font-size:.75rem;color:var(--text-muted);white-space:nowrap;">'+(p.tglKonfirmasi||p.tglBayar||'—')+'</td>'
-      +'<td><button onclick="hapusRiwayatSatu('+origIdx+')" class="btn btn-danger btn-sm" style="padding:.25rem .6rem;font-size:.7rem;">🗑</button></td></tr>';
+      +'<td><button onclick="hapusRiwayatSatu(\''+p.id+'\')" class="btn btn-danger btn-sm" style="padding:.25rem .6rem;font-size:.7rem;">🗑</button></td></tr>';
   }).join('');
 }
 
-function hapusRiwayatSatu(idx){
-  const p=S.payments[idx];
+async function hapusRiwayatSatu(payId){
+  const p=S.payments.find(x=>x.id===payId);
   if(!p)return;
   if(!confirm('Hapus riwayat pembayaran '+p.nama+' bulan '+BULAN[p.bulan]+'?'))return;
-  S.payments.splice(idx,1);
-  save();
+  S.payments=S.payments.filter(x=>x.id!==payId);
+  await save();
   renderAdminRiwayatTable();
   renderAdminStats();
   renderSektorAnggota();
