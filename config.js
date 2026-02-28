@@ -6,12 +6,12 @@
 
 const FIREBASE_CONFIG = {
   apiKey:            "AIzaSyCoJPtquweOLVA6kc8YMtQ7ax7Sowm5g_c",
-  authDomain:        "iuran-388ef.firebaseapp.com",
-  projectId:         "iuran-388ef",
-  storageBucket:     "iuran-388ef.appspot.com",
-  messagingSenderId: "",   // opsional
-  appId:             ""    // opsional
+  authDomain:        "seksibapa-329ea.firebaseapp.com",
+  projectId:         "seksibapa-329ea",
+  storageBucket:     "seksibapa-329ea.firebasestorage.app",
+  messagingSenderId: "83897302931",   // opsional
+  appId:             "1:83897302931:web:99dfb518a0fed99c7ff266"    // opsional
 };
 
 // Durasi auto-logout saat tidak ada aktivitas (dalam detik)
-const AUTO_LOGOUT_SECONDS = 30;
+const AUTO_LOGOUT_SECONDS = 50;
