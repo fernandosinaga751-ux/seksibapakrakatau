@@ -251,6 +251,7 @@ footer{text-align:center;padding:1rem 1rem 2rem;color:var(--text-muted);font-siz
 <!-- Firebase Compat SDKs -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
 <body>
 
@@ -549,6 +550,7 @@ service cloud.firestore {
             <button class="btn btn-outline btn-sm" onclick="filterRekap(3)">S3</button>
             <button class="btn btn-outline btn-sm" onclick="filterRekap(4)">S4</button>
             <button class="btn btn-outline btn-sm" onclick="exportCSV()">⬇ CSV</button>
+            <button class="btn btn-gold btn-sm" onclick="exportXLSX()" style="background:linear-gradient(135deg,#2D5A3D,#1A3D28);color:#fff;border:none;">⬇ Excel</button>
           </div>
         </div>
         <div class="card" style="padding:0;overflow:hidden;">
@@ -682,7 +684,7 @@ service cloud.firestore {
       <!-- TTAB REKAP -->
       <div id="ttab-rekap" class="tab-content">
         <div class="card">
-          <div class="card-title"><div class="ico">📊</div>Rekap Iuran Sektor <span class="card-meta"><button class="btn btn-outline btn-sm" onclick="exportSektorCSV()">⬇ CSV</button></span></div>
+          <div class="card-title"><div class="ico">📊</div>Rekap Iuran Sektor <span class="card-meta" style="display:flex;gap:.4rem;align-items:center;"><button class="btn btn-outline btn-sm" onclick="exportSektorCSV()">⬇ CSV</button><button class="btn btn-sm" onclick="exportSektorXLSX()" style="background:linear-gradient(135deg,#2D5A3D,#1A3D28);color:#fff;border:none;padding:.33rem .75rem;font-size:.76rem;border-radius:7px;">⬇ Excel</button></span></div>
           <div class="table-wrap">
             <table>
               <thead><tr><th>#</th><th>Nama</th><th>Dibayar</th><th>Sisa</th><th>Progres</th><th>Status</th></tr></thead>
@@ -1791,7 +1793,137 @@ function dlCSV(csv,fname){
   a.download=fname;a.click();
 }
 
-// ============ GOOGLE SHEETS ============
+// ============ EXPORT EXCEL (XLSX) ============
+function buildWorkbookAll(){
+  const wb=XLSX.utils.book_new();
+  const iuranPokok=S.settings.nominal;
+  const tahun=S.settings.tahun;
+  const org=S.settings.org||'Seksi Bapa';
+  const tglCetak=new Date().toLocaleDateString('id-ID',{day:'2-digit',month:'long',year:'numeric'});
+
+  // ── Sheet 1: Rekap Semua Anggota ──
+  const rows1=[
+    [org+' — Rekapitulasi Iuran Tahun '+tahun],
+    ['Iuran Bapa: Rp '+iuranPokok.toLocaleString('id-ID')+'  |  Dicetak: '+tglCetak],
+    [],
+    ['No','Nama Anggota','Sektor','Total Dibayar (Rp)','Iuran Pokok (Rp)','Sisa Iuran (Rp)','Lebihan (Rp)','Status','Keterangan'],
+  ];
+  S.members.forEach((m,i)=>{
+    const paid=getPaid(m.nama),sisa=getSisa(m.nama);
+    const lebih=Math.max(0,paid-iuranPokok);
+    const status=paid>=iuranPokok?(lebih>0?'Lunas (Lebih)':'Lunas'):'Belum Lunas';
+    const ket=lebih>0?('Kelebihan Rp '+lebih.toLocaleString('id-ID')+' atas nama '+m.nama):(sisa>0?'Sisa Rp '+sisa.toLocaleString('id-ID'):'');
+    rows1.push([i+1,m.nama,SEKTOR_NAMES[m.sektor],paid,iuranPokok,sisa,lebih,status,ket]);
+  });
+  // Total row
+  const dr=rows1.length;
+  const totalPaid=S.members.reduce((s,m)=>s+getPaid(m.nama),0);
+  const totalSisa=S.members.reduce((s,m)=>s+getSisa(m.nama),0);
+  const totalLebih=S.members.reduce((s,m)=>s+Math.max(0,getPaid(m.nama)-iuranPokok),0);
+  rows1.push(['','TOTAL','',totalPaid,iuranPokok*S.members.length,totalSisa,totalLebih,'','']);
+  rows1.push([]);
+  rows1.push(['Keterangan:','Biru = input data. Status Lunas = bayar ≥ Rp '+iuranPokok.toLocaleString('id-ID')+'. Lebihan = kelebihan di atas iuran pokok, tetap tercatat atas nama anggota.']);
+
+  const ws1=XLSX.utils.aoa_to_sheet(rows1);
+  // Column widths
+  ws1['!cols']=[{wch:5},{wch:28},{wch:14},{wch:18},{wch:18},{wch:16},{wch:14},{wch:18},{wch:45}];
+  // Merge title rows
+  ws1['!merges']=[
+    {s:{r:0,c:0},e:{r:0,c:8}},
+    {s:{r:1,c:0},e:{r:1,c:8}},
+    {s:{r:rows1.length-1,c:1},e:{r:rows1.length-1,c:8}},
+  ];
+  XLSX.utils.book_append_sheet(wb,ws1,'Rekap Semua Anggota');
+
+  // ── Sheet 2: Per Sektor ──
+  const rows2=[[org+' — Rekap Per Sektor Tahun '+tahun],['Iuran Bapa: Rp '+iuranPokok.toLocaleString('id-ID')],[]];
+  [1,2,3,4].forEach(sek=>{
+    rows2.push([SEKTOR_NAMES[sek].toUpperCase()]);
+    rows2.push(['No','Nama Anggota','Total Dibayar (Rp)','Iuran Pokok (Rp)','Sisa (Rp)','Lebihan (Rp)','Status']);
+    const ms=getMemberSektor(sek);
+    ms.forEach((m,i)=>{
+      const paid=getPaid(m.nama),sisa=getSisa(m.nama),lebih=Math.max(0,paid-iuranPokok);
+      const status=paid>=iuranPokok?(lebih>0?'Lunas (Lebih)':'Lunas'):'Belum Lunas';
+      rows2.push([i+1,m.nama,paid,iuranPokok,sisa,lebih,status]);
+    });
+    const stPaid=ms.reduce((s,m)=>s+getPaid(m.nama),0);
+    const stSisa=ms.reduce((s,m)=>s+getSisa(m.nama),0);
+    const stLebih=ms.reduce((s,m)=>s+Math.max(0,getPaid(m.nama)-iuranPokok),0);
+    rows2.push(['','Subtotal '+SEKTOR_NAMES[sek],stPaid,iuranPokok*ms.length,stSisa,stLebih,'']);
+    rows2.push([]);
+  });
+  const ws2=XLSX.utils.aoa_to_sheet(rows2);
+  ws2['!cols']=[{wch:5},{wch:28},{wch:18},{wch:18},{wch:14},{wch:14},{wch:18}];
+  ws2['!merges']=[{s:{r:0,c:0},e:{r:0,c:6}},{s:{r:1,c:0},e:{r:1,c:6}}];
+  XLSX.utils.book_append_sheet(wb,ws2,'Rekap Per Sektor');
+
+  // ── Sheet 3: Riwayat Pembayaran ──
+  const rows3=[
+    [org+' — Riwayat Pembayaran Terverifikasi Tahun '+tahun],[],
+    ['No','Nama','Sektor','Bulan','Nominal (Rp)','Metode','Tgl Bayar','Dikonfirmasi Oleh','Tgl Konfirmasi'],
+  ];
+  [...S.payments].reverse().forEach((p,i)=>{
+    rows3.push([i+1,p.nama,SEKTOR_NAMES[p.sektor]||'',BULAN[p.bulan]||p.bulan,p.nominal,p.metode||'',p.tglBayar||'',p.dikonfirmasiOleh||'',p.tglKonfirmasi||'']);
+  });
+  const ws3=XLSX.utils.aoa_to_sheet(rows3);
+  ws3['!cols']=[{wch:5},{wch:25},{wch:12},{wch:12},{wch:15},{wch:10},{wch:16},{wch:28},{wch:20}];
+  ws3['!merges']=[{s:{r:0,c:0},e:{r:0,c:8}}];
+  XLSX.utils.book_append_sheet(wb,ws3,'Riwayat Pembayaran');
+
+  return wb;
+}
+
+function exportXLSX(){
+  if(typeof XLSX==='undefined'){toast('Library Excel belum dimuat, coba lagi!');return;}
+  const wb=buildWorkbookAll();
+  XLSX.writeFile(wb,'Rekap-Iuran-'+S.settings.org.replace(/\s+/g,'-')+'-'+S.settings.tahun+'.xlsx');
+  toast('✅ File Excel berhasil diunduh!');
+}
+
+function exportSektorXLSX(){
+  if(!S.currentToken){return;}
+  if(typeof XLSX==='undefined'){toast('Library Excel belum dimuat, coba lagi!');return;}
+  const sek=S.currentToken.sektor;
+  const iuranPokok=S.settings.nominal;
+  const tahun=S.settings.tahun;
+  const org=S.settings.org||'Seksi Bapa';
+  const tglCetak=new Date().toLocaleDateString('id-ID',{day:'2-digit',month:'long',year:'numeric'});
+
+  const rows=[
+    [org+' — Rekap Iuran '+SEKTOR_NAMES[sek]+' Tahun '+tahun],
+    ['Iuran Bapa: Rp '+iuranPokok.toLocaleString('id-ID')+'  |  Dicetak: '+tglCetak],
+    [],
+    ['No','Nama Anggota','Total Dibayar (Rp)','Iuran Pokok (Rp)','Sisa Iuran (Rp)','Lebihan (Rp)','Status','Keterangan'],
+  ];
+  getMemberSektor(sek).forEach((m,i)=>{
+    const paid=getPaid(m.nama),sisa=getSisa(m.nama);
+    const lebih=Math.max(0,paid-iuranPokok);
+    const status=paid>=iuranPokok?(lebih>0?'Lunas (Lebih)':'Lunas'):'Belum Lunas';
+    const ket=lebih>0?('Kelebihan Rp '+lebih.toLocaleString('id-ID')+' atas nama '+m.nama):(sisa>0?'Sisa Rp '+sisa.toLocaleString('id-ID'):'');
+    rows.push([i+1,m.nama,paid,iuranPokok,sisa,lebih,status,ket]);
+  });
+  rows.push([]);
+  const ms=getMemberSektor(sek);
+  const stPaid=ms.reduce((s,m)=>s+getPaid(m.nama),0);
+  const stSisa=ms.reduce((s,m)=>s+getSisa(m.nama),0);
+  const stLebih=ms.reduce((s,m)=>s+Math.max(0,getPaid(m.nama)-iuranPokok),0);
+  rows.push(['','TOTAL '+SEKTOR_NAMES[sek],stPaid,iuranPokok*ms.length,stSisa,stLebih,'','']);
+  rows.push([]);
+  rows.push(['Keterangan:','Status Lunas = bayar ≥ Rp '+iuranPokok.toLocaleString('id-ID')+'. Lebihan = kelebihan di atas iuran pokok, tercatat atas nama anggota.']);
+
+  const ws=XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols']=[{wch:5},{wch:28},{wch:18},{wch:18},{wch:16},{wch:14},{wch:18},{wch:45}];
+  ws['!merges']=[
+    {s:{r:0,c:0},e:{r:0,c:7}},
+    {s:{r:1,c:0},e:{r:1,c:7}},
+    {s:{r:rows.length-1,c:1},e:{r:rows.length-1,c:7}},
+  ];
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,SEKTOR_NAMES[sek]);
+  XLSX.writeFile(wb,'Rekap-'+SEKTOR_NAMES[sek].replace(' ','-')+'-'+tahun+'.xlsx');
+  toast('✅ Excel '+SEKTOR_NAMES[sek]+' berhasil diunduh!');
+}
+
 
 (async function startApp(){
   // Config langsung dari config.js — tidak perlu setup page
