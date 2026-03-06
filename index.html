@@ -1186,11 +1186,19 @@ function updateHint(){
     const paid=getPaid(nama),sisa=getSisa(nama);
     if(sisa===0){hint.innerHTML='<strong style="color:var(--green)">'+nama+' sudah LUNAS!</strong> Tidak perlu bayar lagi.';return;}
     if(nominal>0){
-      const proj=Math.max(0,S.settings.nominal-(paid+nominal));
-      hint.innerHTML=proj===0?'✅ Dengan pembayaran ini <strong>'+nama+'</strong> akan <strong style="color:var(--green)">LUNAS!</strong>'
-        :'Sudah bayar: '+rp(paid)+' — Setelah ini sisa: <strong style="color:var(--red-light)">'+rp(proj)+'</strong>';
+      const totalProj=paid+nominal;
+      const proj=Math.max(0,S.settings.nominal-totalProj);
+      const lebihProj=Math.max(0,totalProj-S.settings.nominal);
+      if(proj===0 && lebihProj>0){
+        hint.innerHTML='✅ <strong>'+nama+'</strong> akan <strong style="color:var(--green)">LUNAS!</strong> '
+          +'<span style="color:#92400e;font-size:.75rem;">⚠️ Kelebihan <strong>'+rp(lebihProj)+'</strong> tercatat atas nama '+nama+'</span>';
+      }else if(proj===0){
+        hint.innerHTML='✅ Dengan pembayaran ini <strong>'+nama+'</strong> akan <strong style="color:var(--green)">LUNAS!</strong>';
+      }else{
+        hint.innerHTML='Sudah bayar: '+rp(paid)+' — Setelah ini sisa iuran Bapa ('+rp(S.settings.nominal)+'): <strong style="color:var(--red-light)">'+rp(proj)+'</strong>';
+      }
     }else{
-      hint.innerHTML=nama+' sudah bayar '+rp(paid)+' — Sisa: <strong style="color:var(--red-light)">'+rp(sisa)+'</strong>';
+      hint.innerHTML=nama+' sudah bayar '+rp(paid)+' — Sisa iuran Bapa: <strong style="color:var(--red-light)">'+rp(sisa)+'</strong>';
     }
   }else{
     hint.innerHTML='💡 Iuran setahun penuh = '+rp(S.settings.nominal);
@@ -1219,7 +1227,13 @@ function submitPayment(){
     showResult(rb,'lunas','Iuran Sudah Lunas!',nama+' sudah LUNAS iuran '+S.settings.tahun+'. Tidak perlu ada pembayaran tambahan.','Total: '+rp(paidBefore)+' (lunas)');
     toast('Iuran sudah lunas');return;
   }
-  const totalBaru=paidBefore+nominal,sisaBaru=Math.max(0,S.settings.nominal-totalBaru),nowLunas=sisaBaru===0;
+  const iuranPokok=S.settings.nominal;
+  const totalBaru=paidBefore+nominal;
+  const lebih=Math.max(0,totalBaru-iuranPokok);
+  const sisaBaru=Math.max(0,iuranPokok-totalBaru);
+  const nowLunas=totalBaru>=iuranPokok;
+  const adaLebih=lebih>0;
+
   if(mode==='token'){
     const tok=document.getElementById('inp-token').value.trim();
     if(!tok){toast('Masukkan token pengurus!');return;}
@@ -1237,12 +1251,22 @@ function submitPayment(){
     }
     S.payments.push({id:uid(),nama,sektor:member.sektor,bulan:parseInt(bulan),nominal,metode:'Tunai',tglBayar:tgl(),tglKonfirmasi:wkt(),dikonfirmasiOleh:foundTok.nama+' ('+SEKTOR_NAMES[foundTok.sektor]+')',tipeKonfirmasi:'token'});
     save();renderPubStats();
-    if(nowLunas){
+    if(nowLunas && adaLebih){
+      // Bayar lebih dari iuran pokok — LUNAS + notif kelebihan
+      showResult(rb,'lunas','LUNAS! 🎉 (Lebihan Tercatat)',
+        'Iuran '+S.settings.tahun+' untuk <strong>'+nama+'</strong> sudah <strong>LUNAS</strong>. Diverifikasi oleh '+foundTok.nama+'.<br>'
+        +'<div style="margin-top:.5rem;background:#fef3c7;border:1px solid #fde68a;border-radius:8px;padding:.5rem .75rem;font-size:.82rem;color:#92400e;">'
+        +'⚠️ <strong>Catatan Lebihan:</strong> Iuran Bapa = '+rp(iuranPokok)+'. Dibayar = '+rp(totalBaru)+'. '
+        +'Kelebihan sebesar <strong>'+rp(lebih)+'</strong> atas nama <strong>'+nama+'</strong> telah tercatat.'
+        +'</div>',
+        'Total tercatat: '+rp(totalBaru)+' | Iuran pokok: '+rp(iuranPokok)+' | Lebih: '+rp(lebih));
+      toast('LUNAS! Lebihan '+rp(lebih)+' tercatat atas nama '+nama);
+    }else if(nowLunas){
       showResult(rb,'lunas','LUNAS! 🎉','Iuran '+S.settings.tahun+' untuk <strong>'+nama+'</strong> ('+SEKTOR_NAMES[member.sektor]+') sudah LUNAS. Diverifikasi oleh '+foundTok.nama+'.','Total: '+rp(totalBaru)+' (lunas)');
       toast('LUNAS! Pembayaran dicatat!');
     }else{
-      showResult(rb,'belum','Pembayaran Dicatat','Terima kasih <strong>'+nama+'</strong>! Pembayaran '+BULAN[parseInt(bulan)]+' sebesar '+rp(nominal)+' diverifikasi oleh '+foundTok.nama+'.','Sisa iuran: '+rp(sisaBaru));
-      toast('Dicatat! Sisa: '+rp(sisaBaru));
+      showResult(rb,'belum','Pembayaran Dicatat','Terima kasih <strong>'+nama+'</strong>! Pembayaran '+BULAN[parseInt(bulan)]+' sebesar '+rp(nominal)+' diverifikasi oleh '+foundTok.nama+'.','Sisa iuran Bapa ('+rp(iuranPokok)+'): <strong style="color:var(--red-light)">'+rp(sisaBaru)+'</strong>');
+      toast('Dicatat! Sisa iuran Bapa: '+rp(sisaBaru));
     }
     document.getElementById('inp-token').value='';
     document.getElementById('inp-token').className='inp-token';
@@ -1254,7 +1278,17 @@ function submitPayment(){
     if(notr.length<9){toast('Nomor tidak valid (min. 9 digit)!');return;}
     S.pending.push({id:uid(),nama,sektor:member.sektor,bulan:parseInt(bulan),nominal,noTransfer:notr,catatan:cat,tglSubmit:wkt()});
     save();renderPubStats();
-    showResult(rb,'pending','Pengajuan Terkirim! 📤','Pengajuan <strong>'+nama+'</strong> ('+SEKTOR_NAMES[member.sektor]+') bulan '+BULAN[parseInt(bulan)]+' sebesar '+rp(nominal)+' dari '+notr+' sudah diterima. Menunggu konfirmasi admin.','');
+    // Notif transfer: jika nominal melebihi sisa iuran
+    let transferMsg='Pengajuan <strong>'+nama+'</strong> ('+SEKTOR_NAMES[member.sektor]+') bulan '+BULAN[parseInt(bulan)]+' sebesar '+rp(nominal)+' dari '+notr+' sudah diterima. Menunggu konfirmasi admin.';
+    if(totalBaru>iuranPokok){
+      transferMsg+='<br><div style="margin-top:.5rem;background:#fef3c7;border:1px solid #fde68a;border-radius:8px;padding:.5rem .75rem;font-size:.82rem;color:#92400e;">'
+        +'⚠️ <strong>Info:</strong> Iuran Bapa = '+rp(iuranPokok)+'. Jika dikonfirmasi, total menjadi '+rp(totalBaru)+'. '
+        +'Kelebihan <strong>'+rp(lebih)+'</strong> akan tercatat atas nama <strong>'+nama+'</strong>.'
+        +'</div>';
+    }else if(totalBaru<iuranPokok){
+      transferMsg+='<br><div style="margin-top:.4rem;font-size:.8rem;color:var(--text-muted);">Sisa iuran Bapa setelah dikonfirmasi: <strong>'+rp(sisaBaru)+'</strong></div>';
+    }
+    showResult(rb,'pending','Pengajuan Terkirim! 📤',transferMsg,'');
     toast('Pengajuan terkirim! Menunggu konfirmasi.');
     document.getElementById('inp-notr').value='';document.getElementById('inp-catatan').value='';
   }
@@ -1447,13 +1481,14 @@ function renderRekapTable(filterSektor=0){
   empty.style.display='none';
   tbody.innerHTML=ms.map((m,i)=>{
     const paid=getPaid(m.nama),sisa=getSisa(m.nama),lunas=sisa===0,pct=Math.min(100,Math.round(paid/S.settings.nominal*100));
+    const lebih=Math.max(0,paid-S.settings.nominal);
     return '<tr><td style="color:var(--text-muted);font-size:.75rem">'+(i+1)+'</td>'
       +'<td><span class="nc">'+m.nama+'</span></td>'
       +'<td>'+sektorBadge(m.sektor)+'</td>'
-      +'<td><strong>'+rp(paid)+'</strong></td>'
+      +'<td><strong>'+rp(paid)+'</strong>'+(lebih>0?'<br><span style="font-size:.67rem;color:#92400e;background:#fef3c7;padding:.1rem .35rem;border-radius:5px;">+'+rp(lebih)+'</span>':'')+'</td>'
       +'<td style="color:'+(lunas?'var(--green)':'var(--red-light)')+'"><strong>'+(lunas?'—':rp(sisa))+'</strong></td>'
       +'<td><div class="prog-wrap"><div class="prog-fill '+(lunas?'':'partial')+'" style="width:'+pct+'%"></div></div><div style="font-size:.65rem;color:var(--text-muted);margin-top:2px">'+pct+'%</div></td>'
-      +'<td><span class="badge '+(lunas?'badge-lunas':'badge-belum')+'">'+(lunas?'Lunas':'Belum')+'</span></td></tr>';
+      +'<td><span class="badge '+(lunas?'badge-lunas':'badge-belum')+'">'+(lunas?'Lunas':'Belum')+'</span>'+(lebih>0?'<br><span style="font-size:.65rem;color:#92400e;">Lebih bayar</span>':'')+'</td></tr>';
   }).join('');
 }
 function filterRekap(n){renderRekapTable(n);}
@@ -1655,7 +1690,16 @@ function confirmPending(id,fromToken){
     noTransfer:p.noTransfer,catatan:p.catatan||''});
   S.pending=S.pending.filter(x=>x.id!==id);
   save();if(fromToken)renderTokenDashboard();else renderAdmin();
-  toast(getSisa(p.nama)===0?p.nama+' LUNAS!':'Dikonfirmasi. Sisa: '+rp(getSisa(p.nama)));
+  const sisaAfter=getSisa(p.nama);
+  const totalAfter=getPaid(p.nama);
+  const lebihAfter=Math.max(0,totalAfter-(S.settings.nominal));
+  if(sisaAfter===0 && lebihAfter>0){
+    toast(p.nama+' LUNAS! Lebihan '+rp(lebihAfter)+' tercatat.');
+  }else if(sisaAfter===0){
+    toast(p.nama+' LUNAS!');
+  }else{
+    toast('Dikonfirmasi. Sisa iuran Bapa: '+rp(sisaAfter));
+  }
 }
 function rejectPending(id){
   const p=S.pending.find(x=>x.id===id);
@@ -1723,9 +1767,10 @@ function confirmReset(){
 
 // ============ EXPORT CSV ============
 function exportCSV(){
-  let csv='No,Nama,Sektor,Total Dibayar,Sisa,Status\n';
+  let csv='No,Nama,Sektor,Total Dibayar,Iuran Pokok,Sisa,Lebihan,Status\n';
   S.members.forEach((m,i)=>{
-    csv+=''+(i+1)+',"'+m.nama+'","'+SEKTOR_NAMES[m.sektor]+'",'+getPaid(m.nama)+','+getSisa(m.nama)+','+(isLunas(m.nama)?'Lunas':'Belum Lunas')+'\n';
+    const paid=getPaid(m.nama),sisa=getSisa(m.nama),lebih=Math.max(0,paid-S.settings.nominal);
+    csv+=''+(i+1)+',"'+m.nama+'","'+SEKTOR_NAMES[m.sektor]+'",'+paid+','+S.settings.nominal+','+sisa+','+lebih+','+(isLunas(m.nama)?'Lunas':'Belum Lunas')+'\n';
   });
   dlCSV(csv,'rekap-iuran-'+S.settings.tahun+'.csv');
   toast('CSV diunduh!');
