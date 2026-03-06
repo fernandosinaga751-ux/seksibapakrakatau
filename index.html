@@ -514,6 +514,11 @@ service cloud.firestore {
           <div class="card-title"><div class="ico">➕</div>Tambah Anggota Baru</div>
           <div class="fg"><label>Nama Lengkap</label><input type="text" id="new-name" placeholder="Nama anggota..."></div>
           <div class="fg">
+            <label>Nomor HP / WhatsApp</label>
+            <input type="tel" id="new-phone" placeholder="Contoh: 628123456789 (awali 62)">
+            <div class="hint">Format internasional tanpa + (cth: 628123456789). Digunakan untuk notifikasi WA otomatis saat pembayaran dikonfirmasi.</div>
+          </div>
+          <div class="fg">
             <label>Sektor</label>
             <div class="sector-select-row" id="new-member-sector-row">
               <button class="ss-btn" onclick="selectSector(1,this)" id="ss1">Sektor 1</button>
@@ -602,6 +607,42 @@ service cloud.firestore {
           <div class="card-title" style="color:var(--red);"><div class="ico" style="background:#fee2e2;">⚠</div>Zona Berbahaya</div>
           <button class="btn btn-danger btn-sm" onclick="confirmReset()">🗑 Hapus Semua Data Pembayaran</button>
         </div>
+
+        <!-- FONNTE WA SETTINGS -->
+        <div class="card" style="border-color:#a5d6a7;">
+          <div class="card-title" style="color:var(--green);"><div class="ico" style="background:#d1fae5;">📲</div>Notifikasi WhatsApp (Fonnte)</div>
+          <div class="info-box green" style="margin-bottom:1rem;">
+            Setiap pembayaran dikonfirmasi, WA otomatis terkirim ke anggota. Daftarkan device di
+            <a href="https://fonnte.com" target="_blank" style="color:var(--green);font-weight:600;">fonnte.com</a> → salin token API.
+          </div>
+          <div class="fg">
+            <label>Token API Fonnte</label>
+            <div style="display:flex;gap:.5rem;align-items:center;">
+              <input type="password" id="set-fonnte-token" placeholder="Masukkan token dari fonnte.com..." style="flex:1;">
+              <button class="btn btn-outline btn-sm" onclick="toggleFonnteVis()" id="fonnte-vis-btn" style="white-space:nowrap;width:auto;">👁 Lihat</button>
+            </div>
+            <div class="hint">Token tersimpan terenkripsi di Firebase / lokal. Jangan bagikan ke siapapun.</div>
+          </div>
+          <div class="fg">
+            <label>Template Pesan WA</label>
+            <textarea id="set-wa-template" rows="5" style="width:100%;padding:.72rem .9rem;border:1.5px solid var(--border);border-radius:10px;font-family:'DM Sans',sans-serif;font-size:.85rem;background:var(--cream);resize:vertical;">Yth. Bapak/Ibu {nama},
+
+Pembayaran iuran {org} tahun {tahun} sebesar {nominal} telah DIKONFIRMASI ✅
+
+Status: {status}
+{sisa_info}
+Dikonfirmasi oleh: {dikonfirmasi}
+Tanggal: {tanggal}
+
+Terima kasih 🙏</textarea>
+            <div class="hint">Variabel: <strong>{nama}</strong> {org} {tahun} {nominal} {status} {sisa_info} {dikonfirmasi} {tanggal}</div>
+          </div>
+          <div style="display:flex;gap:.5rem;flex-wrap:wrap;">
+            <button class="btn btn-green" onclick="saveFonnteSettings()" style="flex:1;">💾 Simpan Pengaturan WA</button>
+            <button class="btn btn-outline btn-sm" onclick="testWA()" style="width:auto;">🧪 Test WA</button>
+          </div>
+          <div id="wa-status-box" style="display:none;margin-top:.8rem;"></div>
+        </div>
       </div>
     </div>
   </div>
@@ -667,6 +708,11 @@ service cloud.firestore {
           <div class="card-title"><div class="ico">➕</div>Tambah Anggota Sektor</div>
           <div class="hint" style="margin-bottom:.8rem;" id="tok-add-hint">Anggota akan otomatis terdaftar ke sektor Anda</div>
           <div class="fg"><label>Nama Lengkap</label><input type="text" id="tok-new-name" placeholder="Nama anggota..."></div>
+          <div class="fg">
+            <label>Nomor HP / WhatsApp</label>
+            <input type="tel" id="tok-new-phone" placeholder="Contoh: 628123456789 (awali 62)">
+            <div class="hint">Format internasional tanpa + (cth: 628123456789).</div>
+          </div>
           <button class="btn btn-green" onclick="tokAddMember()">Simpan Anggota</button>
         </div>
         <div class="card">
@@ -1253,6 +1299,8 @@ function submitPayment(){
     }
     S.payments.push({id:uid(),nama,sektor:member.sektor,bulan:parseInt(bulan),nominal,metode:'Tunai',tglBayar:tgl(),tglKonfirmasi:wkt(),dikonfirmasiOleh:foundTok.nama+' ('+SEKTOR_NAMES[foundTok.sektor]+')',tipeKonfirmasi:'token'});
     save();renderPubStats();
+    const konfOleh=foundTok.nama+' ('+SEKTOR_NAMES[foundTok.sektor]+')';
+    const tglKonf=wkt();
     if(nowLunas && adaLebih){
       // Bayar lebih dari iuran pokok — LUNAS + notif kelebihan
       showResult(rb,'lunas','LUNAS! 🎉 (Lebihan Tercatat)',
@@ -1270,6 +1318,8 @@ function submitPayment(){
       showResult(rb,'belum','Pembayaran Dicatat','Terima kasih <strong>'+nama+'</strong>! Pembayaran '+BULAN[parseInt(bulan)]+' sebesar '+rp(nominal)+' diverifikasi oleh '+foundTok.nama+'.','Sisa iuran Bapa ('+rp(iuranPokok)+'): <strong style="color:var(--red-light)">'+rp(sisaBaru)+'</strong>');
       toast('Dicatat! Sisa iuran Bapa: '+rp(sisaBaru));
     }
+    // Kirim notifikasi WA ke anggota
+    kirimNotifWA(nama, nominal, konfOleh, tglKonf);
     document.getElementById('inp-token').value='';
     document.getElementById('inp-token').className='inp-token';
     document.getElementById('token-status').innerHTML='🔑 Token diberikan oleh pengurus sektor';
@@ -1439,15 +1489,20 @@ function renderSektorAnggota(){
     if(!members.length){
       html+='<div class="empty-state" style="padding:1rem;"><p>Belum ada anggota di sektor ini</p></div>';
     }else{
-      html+='<div class="table-wrap"><table><thead><tr><th>#</th><th>Nama Anggota</th><th>Dibayar</th><th>Sisa</th><th>Status</th><th>Aksi</th></tr></thead><tbody>';
+      html+='<div class="table-wrap"><table><thead><tr><th>#</th><th>Nama Anggota</th><th>No HP/WA</th><th>Dibayar</th><th>Sisa</th><th>Status</th><th>Aksi</th></tr></thead><tbody>';
       members.forEach((m,i)=>{
         const paid=getPaid(m.nama),sisa=getSisa(m.nama),lunas=sisa===0,pend=S.pending.filter(p=>p.nama.toLowerCase()===m.nama.toLowerCase()).length;
+        const phoneDisplay=m.phone?('<a href="https://wa.me/'+m.phone+'" target="_blank" style="color:var(--green);font-size:.78rem;">📱 '+m.phone+'</a>'):'<span style="color:#ccc;font-size:.75rem;">—</span>';
         html+='<tr><td style="color:var(--text-muted);font-size:.75rem">'+(i+1)+'</td>'
           +'<td><span class="nc">'+m.nama+'</span>'+(pend?'<span class="badge badge-pending" style="margin-left:.35rem">'+pend+'</span>':'')+'</td>'
+          +'<td>'+phoneDisplay+'</td>'
           +'<td>'+rp(paid)+'</td>'
           +'<td style="color:'+(lunas?'var(--green)':'var(--red-light)')+'"><strong>'+(lunas?'Lunas':rp(sisa))+'</strong></td>'
           +'<td><span class="badge '+(lunas?'badge-lunas':'badge-belum')+'">'+(lunas?'Lunas':'Belum')+'</span></td>'
-          +'<td><button class="btn btn-danger btn-sm" onclick="deleteMember(\''+m.id+'\')">Hapus</button></td></tr>';
+          +'<td style="display:flex;gap:.3rem;flex-wrap:wrap;">'
+          +'<button class="btn btn-danger btn-sm" onclick="deleteMember(\''+m.id+'\')">Hapus</button>'
+          +'<button class="btn btn-outline btn-sm" onclick="editMemberPhone(\''+m.id+'\',\''+m.phone+'\')">✏ HP</button>'
+          +'</td></tr>';
       });
       html+='</tbody></table></div>';
     }
@@ -1643,25 +1698,31 @@ function renderTokRiwayat(){
 // ============ TOKEN ADD MEMBER ============
 function tokAddMember(){
   const nama=document.getElementById('tok-new-name').value.trim();
+  const phone=document.getElementById('tok-new-phone').value.trim().replace(/\D/g,'');
   if(!nama){toast('Masukkan nama!');return;}
   if(getMember(nama)){toast('Nama sudah terdaftar!');return;}
+  if(phone && !/^62\d{8,13}$/.test(phone)){toast('Format HP salah! Awali dengan 62 (cth: 628123456789)');return;}
   const sek=S.currentToken.sektor;
-  S.members.push({id:uid(),nama,sektor:sek});
+  S.members.push({id:uid(),nama,sektor:sek,phone:phone||''});
   save();renderTokenDashboard();renderPubStats();
   document.getElementById('tok-new-name').value='';
-  toast('Anggota '+nama+' ditambahkan ke '+SEKTOR_NAMES[sek]+'!');
+  document.getElementById('tok-new-phone').value='';
+  toast('Anggota '+nama+' ditambahkan!'+(phone?' 📱':''));
 }
 
 // ============ ADMIN ADD MEMBER ============
 function addMember(){
   const nama=document.getElementById('new-name').value.trim();
+  const phone=document.getElementById('new-phone').value.trim().replace(/\D/g,'');
   if(!nama){toast('Masukkan nama!');return;}
   if(getMember(nama)){toast('Nama sudah terdaftar!');return;}
   if(!selectedSector){toast('Pilih sektor untuk anggota!');return;}
-  S.members.push({id:uid(),nama,sektor:selectedSector});
+  if(phone && !/^62\d{8,13}$/.test(phone)){toast('Format HP salah! Awali dengan 62 (cth: 628123456789)');return;}
+  S.members.push({id:uid(),nama,sektor:selectedSector,phone:phone||''});
   save();renderAdmin();
   document.getElementById('new-name').value='';
-  toast('Anggota '+nama+' ditambahkan ke '+SEKTOR_NAMES[selectedSector]+'!');
+  document.getElementById('new-phone').value='';
+  toast('Anggota '+nama+' ditambahkan!'+(phone?' 📱':''));
 }
 function deleteMember(id){
   const m=S.members.find(x=>x.id===id);
@@ -1702,6 +1763,8 @@ function confirmPending(id,fromToken){
   }else{
     toast('Dikonfirmasi. Sisa iuran Bapa: '+rp(sisaAfter));
   }
+  // Kirim notifikasi WA ke anggota
+  kirimNotifWA(p.nama, p.nominal, dikonfirmasiOleh, now);
 }
 function rejectPending(id){
   const p=S.pending.find(x=>x.id===id);
@@ -1717,7 +1780,12 @@ function loadSettings(){
   document.getElementById('set-org').value=S.settings.org||'';
   document.getElementById('set-tahun').value=S.settings.tahun||2025;
   document.getElementById('set-nominal').value=S.settings.nominal||90000;
+  document.getElementById('set-fonnte-token').value=S.settings.fonnteToken||'';
+  document.getElementById('set-wa-template').value=S.settings.waTemplate||defaultWATemplate();
   renderAdminTokenList();
+}
+function defaultWATemplate(){
+  return 'Yth. Bapak/Ibu {nama},\n\nPembayaran iuran {org} tahun {tahun} sebesar {nominal} telah DIKONFIRMASI ✅\n\nStatus: {status}\n{sisa_info}\nDikonfirmasi oleh: {dikonfirmasi}\nTanggal: {tanggal}\n\nTerima kasih 🙏';
 }
 function saveSetting(){
   S.settings.org=document.getElementById('set-org').value||'Seksi Bapa';
@@ -1727,8 +1795,130 @@ function saveSetting(){
   if(np)S.settings.password=np;
   save();updateBadge();renderAdmin();toast('Pengaturan disimpan!');
 }
+function saveFonnteSettings(){
+  S.settings.fonnteToken=document.getElementById('set-fonnte-token').value.trim();
+  S.settings.waTemplate=document.getElementById('set-wa-template').value.trim()||defaultWATemplate();
+  save();
+  showWAStatus(S.settings.fonnteToken?'✅ Pengaturan WA disimpan! Token Fonnte aktif.':'⚠️ Token kosong — notifikasi WA tidak akan terkirim.', S.settings.fonnteToken?'green':'warn');
+  toast('Pengaturan WA disimpan!');
+}
+function toggleFonnteVis(){
+  const inp=document.getElementById('set-fonnte-token');
+  const btn=document.getElementById('fonnte-vis-btn');
+  if(inp.type==='password'){inp.type='text';btn.textContent='🙈 Sembunyikan';}
+  else{inp.type='password';btn.textContent='👁 Lihat';}
+}
+function showWAStatus(msg,type){
+  const el=document.getElementById('wa-status-box');
+  if(!el)return;
+  const bg=type==='green'?'#d1fae5':type==='error'?'#fee2e2':'#fef3c7';
+  const col=type==='green'?'#065f46':type==='error'?'var(--red)':'#92400e';
+  const brd=type==='green'?'#6ee7b7':type==='error'?'#fca5a5':'#fde68a';
+  el.style.display='block';
+  el.innerHTML='<div style="background:'+bg+';border:1px solid '+brd+';border-radius:8px;padding:.6rem .9rem;font-size:.82rem;color:'+col+';">'+msg+'</div>';
+}
 
-function renderAdminTokenList(){
+// ============ WHATSAPP FONNTE ============
+function buildWAMessage(nama, nominal, status, sisa, dikonfirmasi, tanggal){
+  const tmpl=S.settings.waTemplate||defaultWATemplate();
+  const iuranPokok=S.settings.nominal;
+  const lebih=Math.max(0,nominal-iuranPokok);
+  let sisa_info='';
+  if(status.includes('LUNAS') && lebih>0){
+    sisa_info='Kelebihan bayar: '+rp(lebih)+' tercatat atas nama Anda.';
+  } else if(sisa>0){
+    sisa_info='Sisa iuran: '+rp(sisa);
+  } else {
+    sisa_info='Iuran tahun ini telah LUNAS. Terima kasih!';
+  }
+  return tmpl
+    .replace(/\{nama\}/g, nama)
+    .replace(/\{org\}/g, S.settings.org||'Seksi Bapa')
+    .replace(/\{tahun\}/g, S.settings.tahun||2025)
+    .replace(/\{nominal\}/g, rp(nominal))
+    .replace(/\{status\}/g, status)
+    .replace(/\{sisa_info\}/g, sisa_info)
+    .replace(/\{dikonfirmasi\}/g, dikonfirmasi)
+    .replace(/\{tanggal\}/g, tanggal);
+}
+
+async function sendWAFonnte(phone, message){
+  const token=S.settings.fonnteToken;
+  if(!token){console.warn('Fonnte token kosong, WA tidak terkirim.');return{ok:false,reason:'no_token'};}
+  if(!phone){console.warn('Nomor HP kosong untuk anggota ini.');return{ok:false,reason:'no_phone'};}
+  try{
+    const res=await fetch('https://api.fonnte.com/send',{
+      method:'POST',
+      headers:{'Authorization':token,'Content-Type':'application/json'},
+      body:JSON.stringify({target:phone,message,countryCode:'62'})
+    });
+    const data=await res.json();
+    return{ok:res.ok&&data.status!==false,data};
+  }catch(e){
+    console.error('Fonnte error:',e);
+    return{ok:false,reason:e.message};
+  }
+}
+
+async function kirimNotifWA(nama, nominalDibayar, dikonfirmasi, tanggal){
+  const member=getMember(nama);
+  if(!member||!member.phone) return;
+  const paid=getPaid(nama);
+  const sisa=getSisa(nama);
+  const lebih=Math.max(0,paid-S.settings.nominal);
+  const lunas=sisa===0;
+  let statusStr;
+  if(lunas && lebih>0) statusStr='✅ LUNAS (Lebih Rp '+lebih.toLocaleString('id-ID')+')';
+  else if(lunas) statusStr='✅ LUNAS';
+  else statusStr='📝 Belum Lunas — Sisa '+rp(sisa);
+  const msg=buildWAMessage(nama, nominalDibayar, statusStr, sisa, dikonfirmasi, tanggal);
+  const result=await sendWAFonnte(member.phone, msg);
+  if(result.ok){
+    toast('✅ WA terkirim ke '+nama+' ('+member.phone+')');
+  } else if(result.reason==='no_token'){
+    // silent — no token configured
+  } else if(result.reason==='no_phone'){
+    // silent — no phone number
+  } else {
+    toast('⚠️ WA gagal ke '+nama+'. Cek token Fonnte.');
+    console.error('WA send failed:',result);
+  }
+}
+
+async function testWA(){
+  const token=document.getElementById('set-fonnte-token').value.trim();
+  if(!token){showWAStatus('❌ Isi token Fonnte terlebih dahulu!','error');return;}
+  // find any member with phone
+  const testMember=S.members.find(m=>m.phone);
+  if(!testMember){showWAStatus('⚠️ Belum ada anggota dengan nomor HP. Tambah anggota dengan nomor HP dulu.','warn');return;}
+  showWAStatus('⏳ Mengirim pesan test ke '+testMember.phone+'...','warn');
+  const msg=buildWAMessage(
+    testMember.nama, S.settings.nominal,
+    '✅ LUNAS (TEST)',0,'Admin Test',tgl()
+  );
+  // Temporarily use the input token (not yet saved)
+  const savedToken=S.settings.fonnteToken;
+  S.settings.fonnteToken=token;
+  const result=await sendWAFonnte(testMember.phone, msg);
+  S.settings.fonnteToken=savedToken;
+  if(result.ok){
+    showWAStatus('✅ Pesan test berhasil dikirim ke '+testMember.nama+' ('+testMember.phone+')! Cek WhatsApp.','green');
+  } else {
+    showWAStatus('❌ Gagal kirim. Pastikan token benar & device Fonnte aktif.<br><small>Detail: '+JSON.stringify(result.data||result.reason)+'</small>','error');
+  }
+}
+
+function editMemberPhone(id, currentPhone){
+  const newPhone=prompt('Nomor HP/WA untuk anggota ini:\n(Format: 628123456789 — awali 62, tanpa +)\nKosongkan untuk hapus nomor.',currentPhone||'');
+  if(newPhone===null) return; // cancelled
+  const cleaned=newPhone.trim().replace(/\D/g,'');
+  if(cleaned && !/^62\d{8,13}$/.test(cleaned)){toast('Format HP salah! Awali 62 (cth: 628123456789)');return;}
+  const m=S.members.find(x=>x.id===id);
+  if(!m) return;
+  m.phone=cleaned;
+  save(); renderAdmin();
+  toast(cleaned?'Nomor HP disimpan: '+cleaned:'Nomor HP dihapus.');
+}
   const el=document.getElementById('admin-token-list');
   if(!el)return;
   const sColors=[null,'#1B4F8A','#2D5A3D','#6B2D8B','#8B3A0F'];
