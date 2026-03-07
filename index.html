@@ -53,6 +53,7 @@ input:focus,select:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(201,
 /* BUTTONS */
 .btn{padding:.78rem 1rem;border:none;border-radius:10px;font-family:'DM Sans',sans-serif;font-size:.9rem;font-weight:500;cursor:pointer;transition:all .2s;width:100%;}
 .btn:hover{transform:translateY(-1px);}
+.btn:disabled,.btn.disabled{opacity:.45;cursor:not-allowed;transform:none!important;box-shadow:none!important;filter:grayscale(.4);}
 .btn-primary{background:linear-gradient(135deg,var(--brown),#5A3821);color:#fff;}
 .btn-primary:hover{box-shadow:0 6px 18px rgba(61,43,31,.3);}
 .btn-gold{background:linear-gradient(135deg,var(--gold-dark),var(--gold));color:#fff;}
@@ -423,7 +424,12 @@ service cloud.firestore {
         </div>
       </div>
 
-      <button class="btn btn-primary" onclick="submitPayment()">✓ Kirim Pembayaran</button>
+      <button class="btn btn-primary" id="btn-bayar" onclick="submitPayment()">✓ Kirim Pembayaran</button>
+      <div id="lunas-block" style="display:none;margin-top:.8rem;background:linear-gradient(135deg,#d1fae5,#a7f3d0);border:1.5px solid #34d399;border-radius:12px;padding:1.1rem;text-align:center;animation:pop .4s ease both;">
+        <div style="font-size:1.8rem;margin-bottom:.3rem;">✅</div>
+        <div style="font-family:'Playfair Display',serif;font-size:1.05rem;font-weight:700;color:var(--green);">Iuran Sudah LUNAS!</div>
+        <div id="lunas-block-detail" style="font-size:.84rem;color:#065f46;margin-top:.3rem;line-height:1.6;"></div>
+      </div>
       <div id="result-box">
         <div class="res-icon" id="res-icon"></div>
         <div class="res-title" id="res-title"></div>
@@ -1211,7 +1217,7 @@ function setupAC(inpId,lstId){
 function pickAC(inpId,lstId,nama){
   document.getElementById(inpId).value=nama;
   document.getElementById(lstId).classList.remove('show');
-  if(inpId==='inp-nama'){updateHint();showNamaSectorInfo(nama);}
+  if(inpId==='inp-nama'){updateHint();showNamaSectorInfo(nama);checkLunasBlock(nama);}
 }
 function showNamaSectorInfo(nama){
   const m=getMember(nama);
@@ -1224,7 +1230,50 @@ function onNamaInput(){
   updateHint();
   const nama=document.getElementById('inp-nama').value.trim();
   showNamaSectorInfo(nama);
+  checkLunasBlock(nama);
 }
+
+function checkLunasBlock(nama){
+  const btn=document.getElementById('btn-bayar');
+  const lunasBlock=document.getElementById('lunas-block');
+  const rb=document.getElementById('result-box');
+  const formFields=['inp-bulan','inp-nominal','inp-notr','inp-catatan','inp-token','mbtn-transfer','mbtn-token'];
+
+  if(nama && getMember(nama) && isLunas(nama)){
+    // LUNAS — disable form & show lunas block
+    btn.disabled=true;
+    btn.classList.add('disabled');
+    btn.textContent='✅ Sudah Lunas';
+    btn.style.background='linear-gradient(135deg,#2D5A3D,#1A3D28)';
+    lunasBlock.style.display='block';
+    rb.style.display='none';
+    const paid=getPaid(nama);
+    const lebih=Math.max(0,paid-S.settings.nominal);
+    const member=getMember(nama);
+    document.getElementById('lunas-block-detail').innerHTML=
+      '<strong>'+nama+'</strong> ('+SEKTOR_NAMES[member.sektor]+') telah melunasi iuran '
+      +S.settings.tahun+' sebesar <strong>'+rp(S.settings.nominal)+'</strong>.'
+      +(lebih>0?'<br>Kelebihan <strong>'+rp(lebih)+'</strong> tercatat atas nama Anda.':'')
+      +'<br><span style="font-size:.78rem;opacity:.8">Tidak perlu melakukan pembayaran tambahan.</span>';
+    // disable all form inputs
+    formFields.forEach(id=>{
+      const el=document.getElementById(id);
+      if(el){el.disabled=true;el.style.opacity='.45';}
+    });
+  } else {
+    // NOT lunas — re-enable everything
+    btn.disabled=false;
+    btn.classList.remove('disabled');
+    btn.textContent='✓ Kirim Pembayaran';
+    btn.style.background='';
+    lunasBlock.style.display='none';
+    formFields.forEach(id=>{
+      const el=document.getElementById(id);
+      if(el){el.disabled=false;el.style.opacity='';}
+    });
+  }
+}
+
 function updateHint(){
   const nama=document.getElementById('inp-nama')&&document.getElementById('inp-nama').value.trim();
   const nominal=parseInt((document.getElementById('inp-nominal')&&document.getElementById('inp-nominal').value)||'0');
@@ -1261,6 +1310,8 @@ function renderPubStats(){
 
 // ============ SUBMIT PAYMENT (PUBLIC) ============
 function submitPayment(){
+  const btn=document.getElementById('btn-bayar');
+  if(btn && btn.disabled) return;
   const nama=document.getElementById('inp-nama').value.trim();
   const bulan=document.getElementById('inp-bulan').value;
   const nominal=parseInt(document.getElementById('inp-nominal').value||'0');
@@ -1344,7 +1395,7 @@ function submitPayment(){
     toast('Pengajuan terkirim! Menunggu konfirmasi.');
     document.getElementById('inp-notr').value='';document.getElementById('inp-catatan').value='';
   }
-  document.getElementById('inp-nominal').value='';updateHint();
+  document.getElementById('inp-nominal').value='';updateHint();checkLunasBlock(document.getElementById('inp-nama').value.trim());
 }
 
 function showResult(rb,cls,title,msg,nom){
